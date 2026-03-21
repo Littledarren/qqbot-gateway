@@ -230,7 +230,7 @@ export function createHttpServer(config: HttpServerConfig): { app: Hono; start: 
     const server = serve({
       fetch: app.fetch,
       port,
-      host: "127.0.0.1",
+      hostname: "127.0.0.1",
     });
     injectWebSocket(server);
     console.log(`[http] Server started on port ${port}`);
