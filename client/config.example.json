@@ -1,0 +1,8 @@
+{
+  "gatewayUrl": "http://localhost:3001",
+  "targetOpenid": "C50DCF80E802AAF67CF5225A8C224440",
+  "downloadsDir": "/home/user/Downloads",
+  "cmdTimeout": 30000,
+  "chunkSize": 1800,
+  "chunkDelay": 300
+}
