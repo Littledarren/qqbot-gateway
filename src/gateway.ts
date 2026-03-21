@@ -35,6 +35,9 @@ const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000, 60000];
 const RATE_LIMIT_DELAY = 60000;
 const MAX_RECONNECT_ATTEMPTS = 100;
 
+// 心跳配置
+const HEARTBEAT_MISS_LIMIT = 3; // 连续丢失 N 次 ACK 后断开重连
+
 export interface GatewayConfig {
   appId: string;
   clientSecret: string;
@@ -65,6 +68,7 @@ export class QQBotGateway {
 
   private ws: WebSocket | null = null;
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  private missedHeartbeats = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isAborted = false;
   private isConnecting = false;
@@ -247,6 +251,7 @@ export class QQBotGateway {
         this.handleHello(payload, accessToken);
         break;
       case 11: // Heartbeat ACK
+        this.missedHeartbeats = 0;
         this.state.lastHeartbeat = Date.now();
         this.config.log?.debug?.("Heartbeat ACK received");
         break;
@@ -271,10 +276,18 @@ export class QQBotGateway {
     const heartbeatInterval = helloData?.heartbeat_interval ?? 41250;
 
     // 开始心跳
+    this.missedHeartbeats = 0;
     this.heartbeatInterval = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(JSON.stringify({ op: 11, d: this.state.lastSeq }));
-        this.config.log?.debug?.("Heartbeat sent");
+        this.missedHeartbeats++;
+        this.config.log?.debug?.(`Heartbeat sent (missed: ${this.missedHeartbeats}/${HEARTBEAT_MISS_LIMIT})`);
+
+        if (this.missedHeartbeats >= HEARTBEAT_MISS_LIMIT) {
+          this.config.log?.error(`Heartbeat timeout: missed ${HEARTBEAT_MISS_LIMIT} ACKs, reconnecting...`);
+          // 直接关闭连接，触发 close 事件 -> scheduleReconnect
+          this.ws.close(4000, "Heartbeat timeout");
+        }
       }
     }, heartbeatInterval);
 
