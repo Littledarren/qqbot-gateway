@@ -292,6 +292,10 @@ qqbot-gateway/
 
 在群里 @机器人 发送消息，控制台会打印群 OpenID。
 
+## 致谢
+
+本项目参考了 [openclaw-qqbot](https://github.com/tencent-connect/openclaw-qqbot) 项目的 QQ Bot API 调用方式和 WebSocket Gateway 协议实现。
+
 ## License
 
 MIT
