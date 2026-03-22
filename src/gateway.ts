@@ -255,6 +255,12 @@ export class QQBotGateway {
         this.state.lastHeartbeat = Date.now();
         this.config.log?.debug?.("Heartbeat ACK received");
         break;
+      case 1: // Heartbeat from server - must respond with Heartbeat ACK (op 11)
+        if (this.ws?.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ op: 11, d: payload.d }));
+          this.config.log?.debug?.("Heartbeat ACK sent for server heartbeat");
+        }
+        break;
       case 0: // Dispatch
         this.handleDispatch(payload);
         break;
@@ -279,7 +285,7 @@ export class QQBotGateway {
     this.missedHeartbeats = 0;
     this.heartbeatInterval = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ op: 11, d: this.state.lastSeq }));
+        this.ws.send(JSON.stringify({ op: 1, d: this.state.lastSeq }));
         this.missedHeartbeats++;
         this.config.log?.debug?.(`Heartbeat sent (missed: ${this.missedHeartbeats}/${HEARTBEAT_MISS_LIMIT})`);
 
