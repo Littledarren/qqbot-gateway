@@ -41,6 +41,65 @@ export function executeCommand(
   });
 }
 
+/** 后台任务记录 */
+export interface BackgroundJob {
+  id: number;
+  command: string;
+  startTime: number;
+  proc: ReturnType<typeof import("node:child_process").execFile>;
+  completed: boolean;
+  exitCode?: number;
+  stdout: string;
+  stderr: string;
+}
+
+const bgJobs = new Map<number, BackgroundJob>();
+let nextJobId = 1;
+
+/**
+ * 执行命令（后台模式，立即返回 jobId）
+ */
+export function executeBackground(
+  command: string,
+  onComplete: (job: BackgroundJob) => void,
+): number {
+  const id = nextJobId++;
+  const job: BackgroundJob = {
+    id,
+    command,
+    startTime: Date.now(),
+    proc: null as any,
+    completed: false,
+    stdout: "",
+    stderr: "",
+  };
+
+  job.proc = execFile("bash", ["-c", command], { encoding: "utf-8" }, (error, stdout, stderr) => {
+    job.completed = true;
+    job.exitCode = typeof error?.code === "number" ? error.code : 0;
+    job.stdout = stdout || "";
+    job.stderr = stderr || "";
+    onComplete(job);
+  });
+
+  bgJobs.set(id, job);
+  return id;
+}
+
+/**
+ * 获取后台任务状态
+ */
+export function getBackgroundJob(id: number): BackgroundJob | undefined {
+  return bgJobs.get(id);
+}
+
+/**
+ * 列出所有后台任务
+ */
+export function listBackgroundJobs(): BackgroundJob[] {
+  return Array.from(bgJobs.values());
+}
+
 /**
  * 格式化执行结果
  */

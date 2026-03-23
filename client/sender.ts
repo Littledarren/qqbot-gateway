@@ -14,6 +14,49 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
+ * 发送 Markdown 消息（单条，内容为 markdown 格式）
+ */
+export async function sendMarkdown(gatewayUrl: string, openid: string, content: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${gatewayUrl}/api/send/markdown`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: openid, content }),
+    });
+    const data = await res.json() as { success: boolean; error?: string };
+    if (!data.success) {
+      console.error(`[sender] Markdown发送失败: ${data.error}`);
+    }
+    return data.success;
+  } catch (err) {
+    console.error(`[sender] Markdown请求失败: ${err}`);
+    return false;
+  }
+}
+
+/**
+ * 主动发送文本消息（无需 replyToId，有配额限制慎用）
+ */
+export async function sendProactive(gatewayUrl: string, openid: string, content: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${gatewayUrl}/api/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // 不传 msgId，gateway 会走主动发送逻辑
+      body: JSON.stringify({ to: openid, type: "c2c", content }),
+    });
+    const data = await res.json() as { success: boolean; error?: string };
+    if (!data.success) {
+      console.error(`[sender] 主动发送失败: ${data.error}`);
+    }
+    return data.success;
+  } catch (err) {
+    console.error(`[sender] 主动发送请求失败: ${err}`);
+    return false;
+  }
+}
+
+/**
  * 发送文本消息（单条）
  */
 export async function sendText(gatewayUrl: string, openid: string, content: string): Promise<boolean> {
@@ -31,6 +74,55 @@ export async function sendText(gatewayUrl: string, openid: string, content: stri
   } catch (err) {
     console.error(`[sender] 请求失败: ${err}`);
     return false;
+  }
+}
+
+/**
+ * 将长文本分段发送（Markdown 格式，代码块包装）
+ */
+export async function sendLongTextMarkdown(
+  gatewayUrl: string,
+  openid: string,
+  text: string,
+  codeLang = "bash",
+  chunkSize = DEFAULT_CHUNK_SIZE,
+  chunkDelay = DEFAULT_CHUNK_DELAY,
+): Promise<void> {
+  // 将长文本包装为 markdown 代码块分段发送
+  const header = `\`\`\`${codeLang}\n`;
+  const footer = "\n```";
+  const maxContent = chunkSize - header.length - footer.length - 10; // 留余量给序号
+
+  if (text.length <= maxContent) {
+    await sendMarkdown(gatewayUrl, openid, header + text + footer);
+    return;
+  }
+
+  // 按行分割，尽量不在行中间断开
+  const lines = text.split("\n");
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const line of lines) {
+    if (current.length + line.length + 1 > maxContent && current.length > 0) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = current ? current + "\n" + line : line;
+    }
+  }
+  if (current) chunks.push(current);
+
+  const total = chunks.length;
+  for (let i = 0; i < total; i++) {
+    const prefix = total > 1 ? `\`\`\`${codeLang}\n[${i + 1}/${total}]\n` : `\`\`\`${codeLang}\n`;
+    const suffix = i === total - 1 ? "\n```" : "\n```";
+    const chunk = prefix + chunks[i] + suffix;
+
+    await sendMarkdown(gatewayUrl, openid, chunk);
+    if (i < total - 1) {
+      await delay(chunkDelay);
+    }
   }
 }
 

@@ -14,6 +14,8 @@ export interface ClientConfig {
   cmdTimeout: number;
   chunkSize: number;
   chunkDelay: number;
+  /** 命令别名映射 */
+  aliases: Record<string, string>;
 }
 
 const DEFAULTS: ClientConfig = {
@@ -23,13 +25,15 @@ const DEFAULTS: ClientConfig = {
   cmdTimeout: 30_000,
   chunkSize: 1800,
   chunkDelay: 300,
+  aliases: {},
 };
 
 export function loadConfig(): ClientConfig {
   if (fs.existsSync(CONFIG_FILE)) {
     try {
       const raw = fs.readFileSync(CONFIG_FILE, "utf-8");
-      return { ...DEFAULTS, ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw);
+      return { ...DEFAULTS, ...parsed, aliases: { ...DEFAULTS.aliases, ...(parsed.aliases || {}) } };
     } catch {
       // fall through
     }
@@ -50,6 +54,11 @@ export function loadConfig(): ClientConfig {
   }
 
   return { ...DEFAULTS };
+}
+
+export function saveAliases(aliases: Record<string, string>): void {
+  const cfg = loadConfig();
+  saveConfig({ ...cfg, aliases });
 }
 
 export function saveConfig(config: Partial<ClientConfig>): void {
