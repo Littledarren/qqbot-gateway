@@ -1,0 +1,234 @@
+QQ 机器人官方文档
+介绍指南运营规范开发文档开放平台官网 
+(opens new window)
+
+起步指南
+
+启动接入
+
+用户端功能简介
+
+基础消息对话
+
+基础框架须知
+
+接口通信框架
+接口调用与鉴权
+事件订阅与通知
+唯一身份机制
+错误与调试
+openapi
+websocket
+
+服务端接口
+
+消息相关
+消息收发 
+发送消息
+富媒体消息
+撤回消息
+事件
+消息类型 
+消息交互 
+用户模块
+用户管理 
+机器人链接
+事件
+群聊模块
+群管理 
+事件
+频道模块
+频道管理 
+获取用户详情
+获取用户频道列表
+获取频道详情
+获取子频道列表
+获取子频道详情
+创建子频道
+修改子频道
+删除子频道
+频道事件
+子频道事件
+频道成员 
+频道身份组与权限管理 
+接口授权管理 
+发言管理 
+内容管理 
+小程序相关 
+#
+撤回消息
+#
+单聊
+#
+接口
+DELETE /v2/users/{openid}/messages/{message_id}
+
+1
+
+#
+功能描述
+
+用于撤回机器人发送给当前用户 openid 的消息 message_id，发送超出2分钟的消息不可撤回
+
+#
+Content-Type
+application/json
+
+1
+
+#
+返回
+
+成功返回 HTTP 状态码 200。
+
+#
+错误码
+
+详见错误码。
+
+#
+示例
+
+请求数据包
+
+DELETE /v2/users/123456/messages/112233
+
+1
+
+#
+群聊
+#
+接口
+DELETE /v2/groups/{group_openid}/messages/{message_id}
+
+1
+
+#
+功能描述
+
+用于撤回机器人发送在当前群 group_openid 的消息 message_id，发送超出2分钟的消息不可撤回
+
+#
+Content-Type
+application/json
+
+1
+
+#
+返回
+
+成功返回 HTTP 状态码 200。
+
+#
+错误码
+
+详见错误码。
+
+#
+示例
+
+请求数据包
+
+DELETE /v2/groups/123456/messages/112233
+
+1
+
+#
+文字子频道
+#
+接口
+DELETE /channels/{channel_id}/messages/{message_id}?hidetip=false
+
+1
+
+#
+参数
+字段名	类型	描述
+hidetip	bool	选填，是否隐藏提示小灰条，true 为隐藏，false 为显示。默认为false
+#
+功能描述
+
+用于撤回子频道 channel_id 下的消息 message_id
+
+管理员可以撤回普通成员的消息。
+频道主可以撤回所有人的消息。
+
+注意
+
+公域机器人暂不支持申请，仅私域机器人可用，选择私域机器人后默认开通。
+注意: 开通后需要先将机器人从频道移除，然后重新添加，方可生效。
+#
+Content-Type
+application/json
+
+1
+
+#
+返回
+
+成功返回 HTTP 状态码 200。
+
+#
+错误码
+
+详见错误码。
+
+#
+示例
+
+请求数据包
+
+DELETE /channels/123456/messages/112233
+
+1
+
+#
+频道私信
+#
+接口
+DELETE /dms/{guild_id}/messages/{message_id}?hidetip=false
+
+1
+
+#
+参数
+字段名	类型	描述
+hidetip	bool	选填，是否隐藏提示小灰条，true 为隐藏，false 为显示。默认为false
+#
+功能描述
+
+用于撤回私信频道 guild_id 中 message_id 指定的私信消息。只能用于撤回机器人自己发送的私信。
+
+注意
+
+公域机器人暂不支持申请，仅私域机器人可用，选择私域机器人后默认开通。
+注意: 开通后需要先将机器人从频道移除，然后重新添加，方可生效。
+#
+Content-Type
+application/json
+
+1
+
+#
+返回
+
+成功返回 HTTP 状态码 200。
+
+#
+错误码
+
+详见错误码。
+
+#
+示例
+
+请求数据包
+
+DELETE /dms/123456/messages/112233
+
+1
+
+上次更新: 12/9/2025, 7:27:31 PM
+
+← 富媒体消息
+事件 →

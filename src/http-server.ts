@@ -20,12 +20,14 @@ import {
   getAccessToken,
   sendProactiveC2CMessage,
   sendProactiveGroupMessage,
+  sendC2CMessage,
   sendC2CImageMessage,
   sendGroupImageMessage,
   sendC2CVoiceMessage,
   sendGroupVoiceMessage,
   sendC2CFileMessage,
   sendGroupFileMessage,
+  initApiConfig,
 } from "./api.js";
 import type { QQBotGateway } from "./gateway.js";
 
@@ -99,6 +101,45 @@ export function createHttpServer(config: HttpServerConfig): { app: Hono; start: 
     return c.json(response);
   });
 
+  // 发送 Markdown 测试消息
+  app.post("/api/send/markdown", async (c) => {
+    try {
+      const body = await c.req.json<{ to: string; content: string; msgId?: string }>();
+
+      if (!body.to || !body.content) {
+        return c.json<ApiResponse>({ success: false, error: "Missing 'to' or 'content'" }, 400);
+      }
+
+      // 启用 markdown 模式
+      initApiConfig({ markdownSupport: true });
+
+      const accessToken = await getAccessToken(appId, clientSecret);
+      let result;
+
+      try {
+        if (body.msgId) {
+          result = await sendC2CMessage(accessToken, body.to, body.content, body.msgId);
+        } else {
+          result = await sendProactiveC2CMessage(accessToken, body.to, body.content);
+        }
+      } finally {
+        // 恢复文本模式
+        initApiConfig({ markdownSupport: false });
+      }
+
+      return c.json<ApiResponse<SendResponse>>({
+        success: true,
+        data: { messageId: result.id, timestamp: result.timestamp },
+      });
+    } catch (err) {
+      initApiConfig({ markdownSupport: false });
+      return c.json<ApiResponse>(
+        { success: false, error: err instanceof Error ? err.message : String(err) },
+        500
+      );
+    }
+  });
+
   // 发送文本消息
   app.post("/api/send", async (c) => {
     try {
@@ -112,10 +153,29 @@ export function createHttpServer(config: HttpServerConfig): { app: Hono; start: 
       const type = body.type || "c2c";
 
       let result;
-      if (type === "group") {
-        result = await sendProactiveGroupMessage(accessToken, body.to, body.content);
-      } else {
-        result = await sendProactiveC2CMessage(accessToken, body.to, body.content);
+
+      // C2C 消息发送前启动 typing 状态
+      if (type !== "group") {
+        gateway.startTyping(body.to, body.msgId);
+      }
+
+      try {
+        if (type === "group") {
+          // 群消息暂不支持 msgId 回复
+          result = await sendProactiveGroupMessage(accessToken, body.to, body.content);
+        } else {
+          // 如果提供 msgId，则作为回复发送；否则为主动推送
+          if (body.msgId) {
+            console.log(`[http] Sending reply to msgId: ${body.msgId}`);
+            // messageReference 用于引用消息样式（REFIDX），msgId 用于被动回复
+            result = await sendC2CMessage(accessToken, body.to, body.content, body.msgId, body.messageReference);
+          } else {
+            result = await sendProactiveC2CMessage(accessToken, body.to, body.content);
+          }
+        }
+      } finally {
+        // 发送完成后停止 typing
+        gateway.stopTyping();
       }
 
       return c.json<ApiResponse<SendResponse>>({
@@ -123,6 +183,7 @@ export function createHttpServer(config: HttpServerConfig): { app: Hono; start: 
         data: { messageId: result.id, timestamp: result.timestamp },
       });
     } catch (err) {
+      gateway.stopTyping();
       return c.json<ApiResponse>(
         { success: false, error: err instanceof Error ? err.message : String(err) },
         500
@@ -143,10 +204,20 @@ export function createHttpServer(config: HttpServerConfig): { app: Hono; start: 
       const type = body.type || "c2c";
 
       let result;
-      if (type === "group") {
-        result = await sendGroupImageMessage(accessToken, body.to, body.imageUrl, undefined, body.content);
-      } else {
-        result = await sendC2CImageMessage(accessToken, body.to, body.imageUrl, undefined, body.content);
+
+      // C2C 消息发送前启动 typing 状态
+      if (type !== "group") {
+        gateway.startTyping(body.to);
+      }
+
+      try {
+        if (type === "group") {
+          result = await sendGroupImageMessage(accessToken, body.to, body.imageUrl, undefined, body.content);
+        } else {
+          result = await sendC2CImageMessage(accessToken, body.to, body.imageUrl, undefined, body.content);
+        }
+      } finally {
+        gateway.stopTyping();
       }
 
       return c.json<ApiResponse<SendResponse>>({
@@ -154,6 +225,7 @@ export function createHttpServer(config: HttpServerConfig): { app: Hono; start: 
         data: { messageId: result.id, timestamp: result.timestamp },
       });
     } catch (err) {
+      gateway.stopTyping();
       return c.json<ApiResponse>(
         { success: false, error: err instanceof Error ? err.message : String(err) },
         500
@@ -174,10 +246,20 @@ export function createHttpServer(config: HttpServerConfig): { app: Hono; start: 
       const type = body.type || "c2c";
 
       let result;
-      if (type === "group") {
-        result = await sendGroupVoiceMessage(accessToken, body.to, body.voiceUrl);
-      } else {
-        result = await sendC2CVoiceMessage(accessToken, body.to, body.voiceUrl);
+
+      // C2C 消息发送前启动 typing 状态
+      if (type !== "group") {
+        gateway.startTyping(body.to);
+      }
+
+      try {
+        if (type === "group") {
+          result = await sendGroupVoiceMessage(accessToken, body.to, body.voiceUrl);
+        } else {
+          result = await sendC2CVoiceMessage(accessToken, body.to, body.voiceUrl);
+        }
+      } finally {
+        gateway.stopTyping();
       }
 
       return c.json<ApiResponse<SendResponse>>({
@@ -185,6 +267,7 @@ export function createHttpServer(config: HttpServerConfig): { app: Hono; start: 
         data: { messageId: result.id, timestamp: result.timestamp },
       });
     } catch (err) {
+      gateway.stopTyping();
       return c.json<ApiResponse>(
         { success: false, error: err instanceof Error ? err.message : String(err) },
         500
@@ -205,10 +288,20 @@ export function createHttpServer(config: HttpServerConfig): { app: Hono; start: 
       const type = body.type || "c2c";
 
       let result;
-      if (type === "group") {
-        result = await sendGroupFileMessage(accessToken, body.to, body.fileUrl, undefined, undefined, body.fileName);
-      } else {
-        result = await sendC2CFileMessage(accessToken, body.to, body.fileUrl, undefined, undefined, body.fileName);
+
+      // C2C 消息发送前启动 typing 状态
+      if (type !== "group") {
+        gateway.startTyping(body.to);
+      }
+
+      try {
+        if (type === "group") {
+          result = await sendGroupFileMessage(accessToken, body.to, body.fileUrl, undefined, undefined, body.fileName);
+        } else {
+          result = await sendC2CFileMessage(accessToken, body.to, body.fileUrl, undefined, undefined, body.fileName);
+        }
+      } finally {
+        gateway.stopTyping();
       }
 
       return c.json<ApiResponse<SendResponse>>({
@@ -216,6 +309,7 @@ export function createHttpServer(config: HttpServerConfig): { app: Hono; start: 
         data: { messageId: result.id, timestamp: result.timestamp },
       });
     } catch (err) {
+      gateway.stopTyping();
       return c.json<ApiResponse>(
         { success: false, error: err instanceof Error ? err.message : String(err) },
         500

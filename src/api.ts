@@ -20,6 +20,43 @@ const tokenFetchPromises = new Map<string, Promise<string>>();
 // 上传缓存
 const uploadCache = new Map<string, { fileInfo: string; fileUuid: string; expiresAt: number }>();
 
+// ============ API 配置 ============
+
+let currentMarkdownSupport = false;
+
+/**
+ * 初始化 API 配置
+ * @param options.markdownSupport - 是否支持 markdown 消息（默认 false，需要机器人具备该权限才能启用）
+ * - Markdown OFF: msg_type=0, content=string
+ * - Markdown ON:  msg_type=2, markdown={ content: string }
+ */
+export function initApiConfig(options: { markdownSupport?: boolean }): void {
+  currentMarkdownSupport = options.markdownSupport === true;
+}
+
+// ============ 出站消息回调钩子 ============
+
+/** 出站消息元信息 */
+export interface OutboundMeta {
+  text?: string;
+  mediaType?: string;
+  mediaUrl?: string;
+  mediaLocalPath?: string;
+  ttsText?: string;
+}
+
+type OnMessageSentCallback = (refIdx: string, meta: OutboundMeta) => void;
+let onMessageSentHook: OnMessageSentCallback | null = null;
+
+/**
+ * 注册出站消息回调
+ * 当消息发送成功且 QQ 返回 ref_idx 时，自动回调此函数
+ * 用于在最底层统一缓存 bot 出站消息的 refIdx
+ */
+export function onMessageSent(callback: OnMessageSentCallback): void {
+  onMessageSentHook = callback;
+}
+
 /**
  * 获取 AccessToken（带缓存 + singleflight）
  */
@@ -179,6 +216,24 @@ export async function getGatewayUrl(accessToken: string): Promise<string> {
   return data.url;
 }
 
+// ============ 用户信息 ============
+
+export interface C2CUserInfo {
+  openid: string;
+  nickname?: string;
+  // 可能还有其他字段
+}
+
+/**
+ * 获取 C2C 用户详情
+ */
+export async function getC2CUserInfo(
+  accessToken: string,
+  openid: string
+): Promise<C2CUserInfo> {
+  return apiRequest<C2CUserInfo>(accessToken, "GET", `/v2/users/${openid}/profile`);
+}
+
 // ============ 消息发送接口 ============
 
 export interface MessageResponse {
@@ -190,31 +245,105 @@ export interface MessageResponse {
 }
 
 /**
+ * 发送 C2C 输入状态通知
+ */
+export async function sendC2CInputNotify(
+  accessToken: string,
+  openid: string,
+  msgId?: string,
+  inputSecond: number = 60
+): Promise<{ refIdx?: string }> {
+  const msgSeq = msgId ? getNextMsgSeq(msgId) : 1;
+  const body = {
+    msg_type: 6,
+    input_notify: {
+      input_type: 1,
+      input_second: inputSecond,
+    },
+    msg_seq: msgSeq,
+    ...(msgId ? { msg_id: msgId } : {}),
+  };
+  const response = await apiRequest<{ ext_info?: { ref_idx?: string } }>(accessToken, "POST", `/v2/users/${openid}/messages`, body);
+  return { refIdx: response.ext_info?.ref_idx };
+}
+
+/**
+ * 构建消息体（支持 Markdown 和 messageReference）
+ */
+function buildMessageBody(
+  content: string,
+  msgId: string | undefined,
+  msgSeq: number,
+  messageReference?: string
+): Record<string, unknown> {
+  const body: Record<string, unknown> = currentMarkdownSupport
+    ? {
+        msg_type: 2,
+        markdown: { content },
+        msg_seq: msgSeq,
+      }
+    : {
+        content,
+        msg_type: 0,
+        msg_seq: msgSeq,
+      };
+
+  if (msgId) {
+    body.msg_id = msgId;
+  }
+  if (messageReference && !currentMarkdownSupport) {
+    body.message_reference = { message_id: messageReference };
+  }
+  return body;
+}
+
+/**
  * 发送 C2C 消息
+ * @param messageReference - 引用消息的 message_id（设置后为引用回复样式，仅非 Markdown 模式支持）
  */
 export async function sendC2CMessage(
   accessToken: string,
   openid: string,
   content: string,
-  msgId?: string
+  msgId?: string,
+  messageReference?: string
 ): Promise<MessageResponse> {
   const msgSeq = msgId ? getNextMsgSeq(msgId) : 1;
-  const body = { content, msg_type: 0, msg_seq: msgSeq, ...(msgId ? { msg_id: msgId } : {}) };
-  return apiRequest<MessageResponse>(accessToken, "POST", `/v2/users/${openid}/messages`, body);
+  const body = buildMessageBody(content, msgId, msgSeq, messageReference);
+  const result = await apiRequest<MessageResponse>(accessToken, "POST", `/v2/users/${openid}/messages`, body);
+  // 触发 refIdx 缓存钩子
+  if (result.ext_info?.ref_idx && onMessageSentHook) {
+    try {
+      onMessageSentHook(result.ext_info.ref_idx, { text: content });
+    } catch (err) {
+      console.error(`[qqbot-api] onMessageSent hook error: ${err}`);
+    }
+  }
+  return result;
 }
 
 /**
  * 发送群消息
+ * @param messageReference - 引用消息的 message_id（设置后为引用回复样式，仅非 Markdown 模式支持）
  */
 export async function sendGroupMessage(
   accessToken: string,
   groupOpenid: string,
   content: string,
-  msgId?: string
+  msgId?: string,
+  messageReference?: string
 ): Promise<MessageResponse> {
   const msgSeq = msgId ? getNextMsgSeq(msgId) : 1;
-  const body = { content, msg_type: 0, msg_seq: msgSeq, ...(msgId ? { msg_id: msgId } : {}) };
-  return apiRequest<MessageResponse>(accessToken, "POST", `/v2/groups/${groupOpenid}/messages`, body);
+  const body = buildMessageBody(content, msgId, msgSeq, messageReference);
+  const result = await apiRequest<MessageResponse>(accessToken, "POST", `/v2/groups/${groupOpenid}/messages`, body);
+  if (result.ext_info?.ref_idx && onMessageSentHook) {
+    try {
+      onMessageSentHook(result.ext_info.ref_idx, { text: content });
+    } catch (err) {
+      console.error(`[qqbot-api] onMessageSent hook error: ${err}`);
+    }
+  }
+  return result;
 }
 
 /**
@@ -234,25 +363,27 @@ export async function sendChannelMessage(
 
 /**
  * 发送主动 C2C 消息（无 msgId）
+ * 尊重 initApiConfig 的 markdownSupport 设置
  */
 export async function sendProactiveC2CMessage(
   accessToken: string,
   openid: string,
   content: string
 ): Promise<MessageResponse> {
-  const body = { content, msg_type: 0 };
+  const body = buildMessageBody(content, undefined, 1);
   return apiRequest<MessageResponse>(accessToken, "POST", `/v2/users/${openid}/messages`, body);
 }
 
 /**
  * 发送主动群消息（无 msgId）
+ * 尊重 initApiConfig 的 markdownSupport 设置
  */
 export async function sendProactiveGroupMessage(
   accessToken: string,
   groupOpenid: string,
   content: string
 ): Promise<MessageResponse> {
-  const body = { content, msg_type: 0 };
+  const body = buildMessageBody(content, undefined, 1);
   return apiRequest<MessageResponse>(accessToken, "POST", `/v2/groups/${groupOpenid}/messages`, body);
 }
 
@@ -391,8 +522,16 @@ async function apiRequestWithRetry<T>(
       lastError = err instanceof Error ? err : new Error(String(err));
       const errMsg = lastError.message;
 
-      // 不重试的错误
+      // 不重试的错误（直接失败，不值得等待重试）
       if (errMsg.includes("400") || errMsg.includes("401") || errMsg.includes("Invalid")) {
+        throw lastError;
+      }
+      // 22009: 消息频率超限，不重试
+      if (errMsg.includes("22009")) {
+        throw lastError;
+      }
+      // upload timeout 不重试
+      if (errMsg.includes("upload timeout") || errMsg.includes("timeout")) {
         throw lastError;
       }
 
@@ -550,5 +689,35 @@ export async function sendGroupFileMessage(
   fileName?: string
 ): Promise<MessageResponse> {
   const uploadResult = await uploadGroupMedia(accessToken, groupOpenid, MediaFileType.FILE, fileUrl, fileBase64, false, fileName);
+  return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId);
+}
+
+// ============ 视频消息 ============
+
+/**
+ * 发送 C2C 视频消息
+ */
+export async function sendC2CVideoMessage(
+  accessToken: string,
+  openid: string,
+  videoUrl?: string,
+  videoBase64?: string,
+  msgId?: string
+): Promise<MessageResponse> {
+  const uploadResult = await uploadC2CMedia(accessToken, openid, MediaFileType.VIDEO, videoUrl, videoBase64, false);
+  return sendC2CMediaMessage(accessToken, openid, uploadResult.file_info, msgId);
+}
+
+/**
+ * 发送群视频消息
+ */
+export async function sendGroupVideoMessage(
+  accessToken: string,
+  groupOpenid: string,
+  videoUrl?: string,
+  videoBase64?: string,
+  msgId?: string
+): Promise<MessageResponse> {
+  const uploadResult = await uploadGroupMedia(accessToken, groupOpenid, MediaFileType.VIDEO, videoUrl, videoBase64, false);
   return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId);
 }

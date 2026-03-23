@@ -95,6 +95,15 @@ export interface WSPayload {
 }
 
 /**
+ * 引用消息
+ */
+export interface QuoteInfo {
+  id: string;
+  content?: string;
+  senderName?: string;
+}
+
+/**
  * 推送给客户端的消息格式
  */
 export interface PushedMessage {
@@ -111,6 +120,10 @@ export interface PushedMessage {
   guildId?: string;
   groupOpenid?: string;
   attachments?: MessageAttachment[];
+  /** 引用消息信息 */
+  quote?: QuoteInfo;
+  /** 引用消息的 refIdx（用于发送引用回复） */
+  refMsgIdx?: string;
 }
 
 /**
@@ -120,6 +133,9 @@ export interface SendTextRequest {
   to: string;
   type: "c2c" | "group";
   content: string;
+  msgId?: string;  // 如果提供 msgId，则作为回复发送
+  messageReference?: string;  // 引用消息 ID（设置后为引用回复样式）
+  refMsgIdx?: string;  // 被引用的消息 refIdx（从 PushedMessage.refMsgIdx 获取，用于发送引用回复）
 }
 
 export interface SendImageRequest {
@@ -127,12 +143,14 @@ export interface SendImageRequest {
   type: "c2c" | "group";
   imageUrl: string;
   content?: string;
+  msgId?: string;  // 如果提供 msgId，则作为回复发送
 }
 
 export interface SendVoiceRequest {
   to: string;
   type: "c2c" | "group";
   voiceUrl: string;
+  msgId?: string;  // 如果提供 msgId，则作为回复发送
 }
 
 export interface SendFileRequest {
@@ -140,6 +158,7 @@ export interface SendFileRequest {
   type: "c2c" | "group";
   fileUrl: string;
   fileName?: string;
+  msgId?: string;  // 如果提供 msgId，则作为回复发送
 }
 
 /**
